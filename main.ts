@@ -8,6 +8,9 @@
 //     the bottom 20% of that range; sell when it reaches the top 20%.
 //   - A 1% stop-loss on cost caps the tail risk of a range that breaks down
 //     (a trending day), so one bad trade cannot sink the run.
+//   - A minimum range width: skip buying when the trailing 8-hour range is
+//     narrower than 0.4% of its mid price — chop that cannot cover the
+//     ~26 bps round-trip cost, so buying it only pays fees.
 //   - Full size (all cash) on every buy, full exit on every sell: one open
 //     position at most, long only, no leverage, no shorts.
 //   - Deterministic: float64 arithmetic on the closes alone, no clock, no
@@ -29,6 +32,8 @@ const LOOKBACK = 480;
 const BAND = 0.2;
 /** Stop-loss: sell when the position is worth 1% under its cost. */
 const STOP_LOSS = 0.01;
+/** Minimum range width as a fraction of the mid price: skip buys below it. */
+const MIN_RANGE_PCT = 0.004;
 /** Slippage cap per order, 1% past the close it was decided on. */
 const MAX_SLIPPAGE_BPS = 100;
 
@@ -75,9 +80,12 @@ await runBars({
       return [];
     }
 
-    // Flat: buy the bottom of the range, full size.
+    // Flat: buy the bottom of the range, full size — but only when the range
+    // is wide enough to pay the round trip.
     const range = rangeOf(closes, LOOKBACK);
     if (range === null || range.hi <= range.lo) return [];
+    const mid = (range.hi + range.lo) / 2;
+    if (range.hi - range.lo < MIN_RANGE_PCT * mid) return [];
     const buyAt = range.lo + BAND * (range.hi - range.lo);
     if (close > buyAt) return [];
     const room = state.weightRoom(SYMBOL);
